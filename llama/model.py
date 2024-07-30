@@ -288,6 +288,10 @@ class TransformerBlock(nn.Module):
         out = h + self.feed_forward(self.ffn_norm(h))
         return out
 
+def serialize_tobytes(file, tensor):
+    """ writes one fp32 tensor to file that is open in wb mode """
+    d = tensor.detach().cpu().flatten().to(torch.float32)
+    file.write(d.numpy().tobytes())
 
 class Transformer(nn.Module):
     def __init__(self, params: ModelArgs):
@@ -336,6 +340,16 @@ class Transformer(nn.Module):
             mask = torch.hstack(
                 [torch.zeros((seqlen, start_pos), device=tokens.device), mask]
             ).type_as(h)
+
+        # Added code begins.
+        import os
+        for name, param in self.named_parameters():
+            file_path = "full_dump_bytes/" + name;
+
+            if not os.path.exists(file_path):
+                with open(file_path, "wb") as f:
+                    serialize_tobytes(f, param)
+        # Added code ends.
 
         for layer in self.layers:
             h = layer(h, start_pos, freqs_cis, mask)
