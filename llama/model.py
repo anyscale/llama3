@@ -4,6 +4,7 @@
 import math
 from dataclasses import dataclass
 from typing import Optional, Tuple
+import torch.distributed as dist
 
 import fairscale.nn.model_parallel.initialize as fs_init
 import torch
@@ -15,6 +16,16 @@ from fairscale.nn.model_parallel.layers import (
 )
 from torch import nn
 
+def print_tensor(x):
+    x_cpu = x.cpu()
+    for k in range(x_cpu.shape[2]):
+        print(x_cpu[0, 0, k].item())
+    # Print each value
+    # for i in range(x_cpu.shape[0]):
+    #     for j in range(x_cpu.shape[1]):
+    #         print("next token --------")
+    #         for k in range(x_cpu.shape[2]):
+    #             print(x_cpu[i, j, k].item())
 
 @dataclass
 class ModelArgs:
@@ -190,9 +201,25 @@ class Attention(nn.Module):
         start_pos: int,
         freqs_cis: torch.Tensor,
         mask: Optional[torch.Tensor],
+        layer: Optional[int],
     ):
         bsz, seqlen, _ = x.shape
         xq, xk, xv = self.wq(x), self.wk(x), self.wv(x)
+        # if (layer == 0 and seqlen == 5):
+        #     print(f"Print X(Q):")
+        #     print_tensor(xq)
+        
+        if layer == 0 and seqlen == 5:
+            # Gather tensors from all GPUs
+            xq_list = [torch.zeros_like(xq) for _ in range(dist.get_world_size())]
+            dist.all_gather(xq_list, xq)
+
+            # Concatenate the gathered tensors
+            xq_full = torch.cat(xq_list, dim=-1)
+
+            if dist.get_rank() == 0:
+                print(f"Print X(Q):")
+                print_tensor(xq_full)
 
         xq = xq.view(bsz, seqlen, self.n_local_heads, self.head_dim)
         xk = xk.view(bsz, seqlen, self.n_local_kv_heads, self.head_dim)
@@ -284,7 +311,7 @@ class TransformerBlock(nn.Module):
         freqs_cis: torch.Tensor,
         mask: Optional[torch.Tensor],
     ):
-        h = x + self.attention(self.attention_norm(x), start_pos, freqs_cis, mask)
+        h = x + self.attention(self.attention_norm(x), start_pos, freqs_cis, mask, self.layer_id)
         out = h + self.feed_forward(self.ffn_norm(h))
         return out
 
@@ -340,16 +367,6 @@ class Transformer(nn.Module):
             mask = torch.hstack(
                 [torch.zeros((seqlen, start_pos), device=tokens.device), mask]
             ).type_as(h)
-
-        # Added code begins.
-        import os
-        for name, param in self.named_parameters():
-            file_path = "full_dump_bytes/" + name;
-
-            if not os.path.exists(file_path):
-                with open(file_path, "wb") as f:
-                    serialize_tobytes(f, param)
-        # Added code ends.
 
         for layer in self.layers:
             h = layer(h, start_pos, freqs_cis, mask)
