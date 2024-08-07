@@ -211,9 +211,9 @@ class Attention(nn.Module):
         bsz, seqlen, _ = x.shape
         xq, xk, xv = self.wq(x), self.wk(x), self.wv(x)
         # Print wq
-        if (layer == 0 and seqlen == 5):
-            print(f"Print Params WQ:")
-            print_tensor_pure(self.wq.weight)
+        # if (layer == 0 and seqlen == 5):
+        #     print(f"Print Params WQ:")
+        #     print_tensor_pure(self.wq.weight)
             # print(self.wq)
 
         # Print RMS norm
@@ -407,6 +407,28 @@ class Transformer(nn.Module):
             mask = torch.hstack(
                 [torch.zeros((seqlen, start_pos), device=tokens.device), mask]
             ).type_as(h)
+
+        # Added code begins.
+        import os
+        for name, param in self.named_parameters():
+            file_path = "/mnt/local_nvme/scratch/data/step1/" + name;
+            if "norm" not in name:
+                # gather from all GPUs
+                param_list = [torch.zeros_like(param) for _ in range(dist.get_world_size())]
+                dist.all_gather(param_list, param)
+                param_full = torch.cat(param_list, dim=-1)
+                if dist.get_rank() == 0:
+                    if not os.path.exists(file_path):
+                        with open(file_path, "wb") as f:
+                            serialize_tobytes(f, param_full)
+                print(f"Rank {dist.get_rank()} has written {name} to file after Gather.")
+            else:
+                if dist.get_rank() == 0:
+                    if not os.path.exists(file_path):
+                        with open(file_path, "wb") as f:
+                            serialize_tobytes(f, param)
+                print(f"Rank {dist.get_rank()} has written {name} to file without Gather.")
+        # Added code ends.
 
         for layer in self.layers:
             h = layer(h, start_pos, freqs_cis, mask)
