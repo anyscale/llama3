@@ -27,6 +27,11 @@ def print_tensor(x):
     #         for k in range(x_cpu.shape[2]):
     #             print(x_cpu[i, j, k].item())
 
+def print_tensor_pure(x):
+    x_cpu = x.cpu()
+    for k in range(x_cpu.shape[1]):
+        print(x_cpu[2, k].item())
+
 @dataclass
 class ModelArgs:
     dim: int = 4096
@@ -205,21 +210,56 @@ class Attention(nn.Module):
     ):
         bsz, seqlen, _ = x.shape
         xq, xk, xv = self.wq(x), self.wk(x), self.wv(x)
+        # Print wq
+        if (layer == 0 and seqlen == 5):
+            print(f"Print Params WQ:")
+            print_tensor_pure(self.wq.weight)
+            # print(self.wq)
+
+        # Print RMS norm
         # if (layer == 0 and seqlen == 5):
-        #     print(f"Print X(Q):")
-        #     print_tensor(xq)
+        #     print(f"Print rms norm:")
+        #     print_tensor(x)
         
-        if layer == 0 and seqlen == 5:
-            # Gather tensors from all GPUs
-            xq_list = [torch.zeros_like(xq) for _ in range(dist.get_world_size())]
-            dist.all_gather(xq_list, xq)
+        # Print X(Q) for all GPUs
+        # if layer == 0 and seqlen == 5:
+        #     # Gather tensors from all GPUs
+        #     xq_list = [torch.zeros_like(xq) for _ in range(dist.get_world_size())]
+        #     dist.all_gather(xq_list, xq)
 
-            # Concatenate the gathered tensors
-            xq_full = torch.cat(xq_list, dim=-1)
+        #     # Concatenate the gathered tensors
+        #     xq_full = torch.cat(xq_list, dim=-1)
 
-            if dist.get_rank() == 0:
-                print(f"Print X(Q):")
-                print_tensor(xq_full)
+        #     if dist.get_rank() == 0:
+        #         print(f"Print X(Q):")
+        #         print_tensor(xq_full)
+        
+
+        # Print X(K) for all GPUs
+        # if layer == 0 and seqlen == 5:
+        #     # Gather tensors from all GPUs
+        #     xk_list = [torch.zeros_like(xk) for _ in range(dist.get_world_size())]
+        #     dist.all_gather(xk_list, xk)
+
+        #     # Concatenate the gathered tensors
+        #     xk_full = torch.cat(xk_list, dim=-1)
+
+        #     if dist.get_rank() == 0:
+        #         print(f"Print X(K):")
+        #         print_tensor(xk_full)
+
+        # Print X(V) for all GPUs
+        # if layer == 0 and seqlen == 5:
+        #     # Gather tensors from all GPUs
+        #     xv_list = [torch.zeros_like(xv) for _ in range(dist.get_world_size())]
+        #     dist.all_gather(xv_list, xv)
+
+        #     # Concatenate the gathered tensors
+        #     xv_full = torch.cat(xv_list, dim=-1)
+
+        #     if dist.get_rank() == 0:
+        #         print(f"Print X(V):")
+        #         print_tensor(xv_full)
 
         xq = xq.view(bsz, seqlen, self.n_local_heads, self.head_dim)
         xk = xk.view(bsz, seqlen, self.n_local_kv_heads, self.head_dim)
